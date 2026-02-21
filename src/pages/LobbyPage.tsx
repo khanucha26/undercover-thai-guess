@@ -241,7 +241,7 @@ const LobbyPage = () => {
 
       {/* Actions */}
       <div className="space-y-3">
-        {isHost && allReady ? (
+        {isHost && allReady && (
           <button
             onClick={handleStart}
             disabled={loading}
@@ -250,11 +250,27 @@ const LobbyPage = () => {
             <Play className="w-5 h-5" />
             {loading ? "กำลังเริ่ม..." : "เริ่มเกม"}
           </button>
-        ) : isHost ? (
+        )}
+        
+        {isHost && !allReady && myPlayer && (
+          <button
+            onClick={handleReady}
+            className={`w-full py-4 rounded-lg font-bold text-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2 ${
+              myPlayer.is_ready
+                ? "bg-success/20 text-success border border-success/30"
+                : "gradient-gold text-primary-foreground btn-glow hover:opacity-90"
+            }`}
+          >
+            <Check className="w-5 h-5" />
+            {myPlayer.is_ready ? "พร้อมแล้ว ✓" : "กดพร้อม"}
+          </button>
+        )}
+
+        {isHost && !allReady && players.length < 3 && (
           <div className="text-center text-muted-foreground text-sm py-4">
-            รอผู้เล่นทั้งหมดกดพร้อม (ขั้นต่ำ 3 คน)
+            รอผู้เล่นเพิ่มเติม (ขั้นต่ำ 3 คน)
           </div>
-        ) : null}
+        )}
 
         {!isHost && myPlayer && (
           <button
