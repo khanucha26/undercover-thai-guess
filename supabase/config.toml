@@ -1,0 +1,7 @@
+project_id = "eojwchlsuddmiejgaqqu"
+
+[functions.start-game]
+verify_jwt = false
+
+[functions.process-vote]
+verify_jwt = false
