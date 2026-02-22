@@ -120,12 +120,22 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Count votes
+      // Count votes per player
       const voteCounts: Record<string, number> = {};
+      for (const p of alivePlayers!) {
+        voteCounts[p.id] = 0;
+      }
       for (const v of votes) {
         voteCounts[v.target_player_id] =
           (voteCounts[v.target_player_id] || 0) + 1;
       }
+
+      // Build vote summary (player name -> count)
+      const voteSummary: { playerId: string; name: string; votes: number }[] = [];
+      for (const p of alivePlayers!) {
+        voteSummary.push({ playerId: p.id, name: p.name, votes: voteCounts[p.id] || 0 });
+      }
+      voteSummary.sort((a, b) => b.votes - a.votes);
 
       // Find max
       let maxVotes = 0;
@@ -165,6 +175,7 @@ Deno.serve(async (req) => {
           JSON.stringify({
             success: true,
             result: "tie",
+            voteSummary,
             message: "เสมอ! ไม่มีใครถูกคัดออก",
           }),
           {
@@ -208,6 +219,7 @@ Deno.serve(async (req) => {
             success: true,
             result: "mrwhite_guess",
             eliminatedId,
+            voteSummary,
             message: "Mr.White ถูกโหวตออก! ให้เดาคำ",
           }),
           {
@@ -257,6 +269,7 @@ Deno.serve(async (req) => {
               success: true,
               result: "game_over",
               winner: "mrwhite",
+              voteSummary,
               message: "Mr.White เดาคำถูก! Mr.White ชนะ!",
             }),
             {
@@ -348,8 +361,7 @@ Deno.serve(async (req) => {
             result: "game_over",
             winner,
             eliminatedId,
-            eliminatedWord,
-            eliminatedRole,
+            voteSummary,
           }),
           {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -368,8 +380,7 @@ Deno.serve(async (req) => {
           success: true,
           result: "eliminated",
           eliminatedId,
-          eliminatedWord,
-          eliminatedRole,
+          voteSummary,
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },

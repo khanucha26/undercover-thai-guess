@@ -17,6 +17,7 @@ export type Database = {
       player_secrets: {
         Row: {
           id: string
+          mr_white_answer: string | null
           player_id: string
           role: string
           room_id: string
@@ -25,6 +26,7 @@ export type Database = {
         }
         Insert: {
           id?: string
+          mr_white_answer?: string | null
           player_id: string
           role?: string
           room_id: string
@@ -33,6 +35,7 @@ export type Database = {
         }
         Update: {
           id?: string
+          mr_white_answer?: string | null
           player_id?: string
           role?: string
           room_id?: string
@@ -98,6 +101,7 @@ export type Database = {
         Row: {
           created_at: string
           current_round: number
+          first_player_id: string | null
           host_id: string
           id: string
           room_code: string
@@ -107,6 +111,7 @@ export type Database = {
         Insert: {
           created_at?: string
           current_round?: number
+          first_player_id?: string | null
           host_id: string
           id?: string
           room_code: string
@@ -116,6 +121,7 @@ export type Database = {
         Update: {
           created_at?: string
           current_round?: number
+          first_player_id?: string | null
           host_id?: string
           id?: string
           room_code?: string

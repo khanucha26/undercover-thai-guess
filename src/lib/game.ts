@@ -148,6 +148,16 @@ export async function getMySecret(roomId: string, userId: string) {
   return data;
 }
 
+// Save Mr.White's answer
+export async function saveMrWhiteAnswer(roomId: string, userId: string, answer: string) {
+  const { error } = await supabase
+    .from("player_secrets")
+    .update({ mr_white_answer: answer } as any)
+    .eq("room_id", roomId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
 // Update room settings
 export async function updateRoomSettings(roomId: string, settings: { undercoverCount: number; mrWhiteCount: number }) {
   const { error } = await supabase

@@ -3,18 +3,22 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useGameStore } from "@/stores/gameStore";
 import { supabase } from "@/integrations/supabase/client";
-import { getMySecret, startVoting } from "@/lib/game";
-import { Eye, EyeOff, Vote } from "lucide-react";
+import { getMySecret, startVoting, saveMrWhiteAnswer } from "@/lib/game";
+import { Eye, EyeOff, Vote, UserRound, Send } from "lucide-react";
 
 const GamePage = () => {
   const navigate = useNavigate();
   const { userId, roomId, playerId } = useGameStore();
   const [word, setWord] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [showWord, setShowWord] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [room, setRoom] = useState<any>(null);
   const [isHost, setIsHost] = useState(false);
+  const [firstPlayerName, setFirstPlayerName] = useState<string | null>(null);
+  const [mrWhiteAnswer, setMrWhiteAnswer] = useState("");
+  const [answerSaved, setAnswerSaved] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!roomId || !userId) return;
@@ -29,30 +33,33 @@ const GamePage = () => {
       setRoom(roomData);
       setIsHost(roomData.host_id === userId);
 
-      if (roomData.status === "voting") {
-        navigate("/vote");
-        return;
-      }
-      if (roomData.status === "result") {
-        navigate("/result");
-        return;
-      }
-      if (roomData.status === "lobby") {
-        navigate("/lobby");
-        return;
+      if (roomData.status === "voting") { navigate("/vote"); return; }
+      if (roomData.status === "result") { navigate("/result"); return; }
+      if (roomData.status === "lobby") { navigate("/lobby"); return; }
+
+      // Get first player name
+      if (roomData.first_player_id) {
+        const { data: fp } = await supabase
+          .from("players")
+          .select("name")
+          .eq("id", roomData.first_player_id)
+          .single();
+        if (fp) setFirstPlayerName(fp.name);
       }
     }
 
     const secret = await getMySecret(roomId, userId);
     setWord(secret?.word ?? null);
+    setRole(secret?.role ?? null);
+    if ((secret as any)?.mr_white_answer) {
+      setMrWhiteAnswer((secret as any).mr_white_answer);
+      setAnswerSaved(true);
+    }
     setLoading(false);
   }, [roomId, userId]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Listen for status changes
   useEffect(() => {
     if (!roomId) return;
     const channel = supabase
@@ -71,11 +78,15 @@ const GamePage = () => {
   const handleStartVoting = async () => {
     if (!roomId) return;
     setError("");
+    try { await startVoting(roomId); } catch (e: any) { setError(e.message); }
+  };
+
+  const handleSaveAnswer = async () => {
+    if (!roomId || !userId || !mrWhiteAnswer.trim()) return;
     try {
-      await startVoting(roomId);
-    } catch (e: any) {
-      setError(e.message);
-    }
+      await saveMrWhiteAnswer(roomId, userId, mrWhiteAnswer.trim());
+      setAnswerSaved(true);
+    } catch (e: any) { setError(e.message); }
   };
 
   if (loading) {
@@ -86,6 +97,8 @@ const GamePage = () => {
     );
   }
 
+  const isMrWhite = role === "mrwhite";
+
   return (
     <div className="min-h-screen gradient-dark flex flex-col items-center justify-center p-6">
       <motion.div
@@ -94,15 +107,29 @@ const GamePage = () => {
         className="w-full max-w-sm"
       >
         {/* Round indicator */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-4">
           <span className="text-sm text-muted-foreground font-medium">
             รอบที่ {room?.current_round || 1}
           </span>
         </div>
 
+        {/* First player announcement */}
+        {firstPlayerName && room?.current_round === 1 && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-primary/10 border border-primary/30 rounded-xl px-4 py-3 mb-6 flex items-center gap-3"
+          >
+            <UserRound className="w-5 h-5 text-primary shrink-0" />
+            <p className="text-sm font-semibold text-primary">
+              <span className="text-foreground">{firstPlayerName}</span> เริ่มก่อน!
+            </p>
+          </motion.div>
+        )}
+
         {/* Word card */}
         <motion.div
-          className="relative w-full aspect-[3/2] rounded-2xl bg-card border border-border card-glow flex items-center justify-center mb-8 cursor-pointer select-none overflow-hidden"
+          className="relative w-full aspect-[3/2] rounded-2xl bg-card border border-border card-glow flex items-center justify-center mb-6 cursor-pointer select-none overflow-hidden"
           onClick={() => setShowWord(!showWord)}
           whileTap={{ scale: 0.97 }}
         >
@@ -122,13 +149,39 @@ const GamePage = () => {
           )}
         </motion.div>
 
+        {/* Mr.White answer input */}
+        {isMrWhite && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-card border border-border rounded-xl p-4 mb-6"
+          >
+            <p className="text-sm text-muted-foreground mb-2 font-medium">คำตอบของคุณ (ลับ)</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={mrWhiteAnswer}
+                onChange={(e) => { setMrWhiteAnswer(e.target.value); setAnswerSaved(false); }}
+                placeholder="พิมพ์คำตอบของคุณ..."
+                className="flex-1 px-3 py-2 rounded-lg bg-secondary border border-border text-foreground text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+              <button
+                onClick={handleSaveAnswer}
+                disabled={!mrWhiteAnswer.trim() || answerSaved}
+                className="px-3 py-2 rounded-lg bg-primary text-primary-foreground font-medium text-sm disabled:opacity-50 flex items-center gap-1"
+              >
+                <Send className="w-4 h-4" />
+                {answerSaved ? "บันทึกแล้ว" : "บันทึก"}
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         <p className="text-center text-muted-foreground text-sm mb-8">
           พูดคุยกับเพื่อนเพื่อหาตัว Undercover!
         </p>
 
-        {error && (
-          <p className="text-danger text-sm text-center mb-3">{error}</p>
-        )}
+        {error && <p className="text-danger text-sm text-center mb-3">{error}</p>}
 
         {isHost && (
           <button
