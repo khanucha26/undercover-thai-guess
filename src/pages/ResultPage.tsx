@@ -4,21 +4,29 @@ import { motion } from "framer-motion";
 import { useGameStore } from "@/stores/gameStore";
 import { supabase } from "@/integrations/supabase/client";
 import { resetToLobby } from "@/lib/game";
-import { Trophy, RotateCcw, Home, Crown, Skull, Eye } from "lucide-react";
+import { Trophy, RotateCcw, Home, Crown, Skull, Eye, Ghost, Shield, UserRound } from "lucide-react";
 
-interface PlayerWithSecret {
+interface PlayerResult {
   id: string;
   name: string;
   is_alive: boolean;
   user_id: string;
-  secret?: { word: string | null; role: string };
+  role: string;
+  word: string | null;
+  mr_white_answer: string | null;
 }
+
+const ROLE_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
+  civilian: { label: "Civilian", icon: Shield, color: "text-success" },
+  undercover: { label: "Undercover", icon: Eye, color: "text-primary" },
+  mrwhite: { label: "Mr.White", icon: Ghost, color: "text-danger" },
+};
 
 const ResultPage = () => {
   const navigate = useNavigate();
   const { userId, roomId, reset } = useGameStore();
   const [room, setRoom] = useState<any>(null);
-  const [players, setPlayers] = useState<PlayerWithSecret[]>([]);
+  const [players, setPlayers] = useState<PlayerResult[]>([]);
   const [voteResult, setVoteResult] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -43,23 +51,18 @@ const ResultPage = () => {
       .limit(1);
     if (results && results.length > 0) setVoteResult(results[0]);
 
-    // Get all players - we can see their secrets now since game is over
-    // Actually we can only see our own secrets via RLS, so we'll use the vote_results
-    const { data: playersData } = await supabase
-      .from("players")
-      .select("id, name, is_alive, user_id")
-      .eq("room_id", roomId)
-      .order("joined_at");
-    
-    setPlayers(playersData || []);
+    // Get full reveal via edge function
+    const { data, error } = await supabase.functions.invoke("get-game-results", {
+      body: { roomId },
+    });
+    if (data?.players) {
+      setPlayers(data.players);
+    }
     setLoading(false);
   }, [roomId]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Listen for room changes (replay)
   useEffect(() => {
     if (!roomId) return;
     const channel = supabase
@@ -74,17 +77,10 @@ const ResultPage = () => {
 
   const handleReplay = async () => {
     if (!roomId) return;
-    try {
-      await resetToLobby(roomId);
-    } catch (e: any) {
-      console.error(e);
-    }
+    try { await resetToLobby(roomId); } catch (e: any) { console.error(e); }
   };
 
-  const handleHome = () => {
-    reset();
-    navigate("/");
-  };
+  const handleHome = () => { reset(); navigate("/"); };
 
   if (loading) {
     return (
@@ -104,43 +100,81 @@ const ResultPage = () => {
     }
   })();
 
+  // Get civilian and undercover words for header display
+  const civilianWord = players.find((p) => p.role === "civilian")?.word;
+  const undercoverWord = players.find((p) => p.role === "undercover")?.word;
+
   return (
     <div className="min-h-screen gradient-dark flex flex-col items-center p-6">
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mt-12 mb-8"
+        className="text-center mt-8 mb-4"
       >
-        <Trophy className="w-16 h-16 text-primary mx-auto mb-4" />
+        <Trophy className="w-14 h-14 text-primary mx-auto mb-3" />
         <h1 className="text-3xl font-extrabold text-primary text-glow">{winnerText}</h1>
       </motion.div>
 
-      {/* Player results */}
-      <div className="w-full max-w-sm space-y-2 mb-8">
-        {players.map((player, i) => (
-          <motion.div
-            key={player.id}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.08 }}
-            className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
-              player.is_alive
-                ? "bg-success/10 border-success/30"
-                : "bg-card border-border opacity-60"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {player.user_id === room?.host_id && <Crown className="w-4 h-4 text-primary" />}
-              {!player.is_alive && <Skull className="w-4 h-4 text-danger" />}
-              <span className="font-semibold">{player.name}</span>
+      {/* Word reveal */}
+      {(civilianWord || undercoverWord) && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="w-full max-w-sm bg-card border border-border rounded-xl p-4 mb-4 flex gap-4 justify-center"
+        >
+          {civilianWord && (
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-1">คำ Civilian</p>
+              <p className="text-lg font-extrabold text-success">{civilianWord}</p>
             </div>
-            <div className="flex items-center gap-2">
-              {!player.is_alive && (
-                <span className="text-xs text-danger font-medium">ออก</span>
+          )}
+          {undercoverWord && (
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground mb-1">คำ Undercover</p>
+              <p className="text-lg font-extrabold text-primary">{undercoverWord}</p>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Player results with full reveal */}
+      <div className="w-full max-w-sm space-y-2 mb-6">
+        {players.map((player, i) => {
+          const rc = ROLE_CONFIG[player.role] || ROLE_CONFIG.civilian;
+          const RoleIcon = rc.icon;
+          return (
+            <motion.div
+              key={player.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.3 + i * 0.08 }}
+              className={`px-4 py-3 rounded-lg border ${
+                player.is_alive
+                  ? "bg-card border-border"
+                  : "bg-card border-border opacity-60"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {player.user_id === room?.host_id && <Crown className="w-4 h-4 text-primary" />}
+                  {!player.is_alive && <Skull className="w-4 h-4 text-danger" />}
+                  <span className="font-semibold">{player.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <RoleIcon className={`w-4 h-4 ${rc.color}`} />
+                  <span className={`text-sm font-bold ${rc.color}`}>{rc.label}</span>
+                </div>
+              </div>
+              {/* Show Mr.White's answer */}
+              {player.role === "mrwhite" && player.mr_white_answer && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  คำตอบ: <span className="font-semibold text-foreground">{player.mr_white_answer}</span>
+                </p>
               )}
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          );
+        })}
       </div>
 
       {/* Actions */}

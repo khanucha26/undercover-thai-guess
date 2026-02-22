@@ -300,13 +300,17 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Pick random first player
+    const alivePlayers = shuffled;
+    const firstPlayer = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+
     // Update room status
     await supabaseAdmin
       .from("rooms")
-      .update({ status: "playing", current_round: 1 })
+      .update({ status: "playing", current_round: 1, first_player_id: firstPlayer.id })
       .eq("id", roomId);
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ success: true, firstPlayerId: firstPlayer.id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {

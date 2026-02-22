@@ -13,6 +13,12 @@ interface Player {
   is_alive: boolean;
 }
 
+interface VoteSummaryItem {
+  playerId: string;
+  name: string;
+  votes: number;
+}
+
 const VotePage = () => {
   const navigate = useNavigate();
   const { userId, roomId, playerId } = useGameStore();
@@ -53,7 +59,6 @@ const VotePage = () => {
       setAliveCount(playersData.length);
     }
 
-    // Check if already voted
     if (roomData) {
       const { data: myVote } = await supabase
         .from("votes")
@@ -64,7 +69,6 @@ const VotePage = () => {
         .maybeSingle();
       if (myVote) setHasVoted(true);
 
-      // Count votes
       const { count } = await supabase
         .from("votes")
         .select("id", { count: "exact" })
@@ -74,11 +78,8 @@ const VotePage = () => {
     }
   }, [roomId, userId]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Real-time
   useEffect(() => {
     if (!roomId) return;
     const channel = supabase
@@ -143,9 +144,14 @@ const VotePage = () => {
     }
   };
 
-  // My player
   const myPlayer = players.find((p) => p.user_id === userId);
   const isAlive = myPlayer?.is_alive ?? false;
+  const voteSummary: VoteSummaryItem[] = tallyResult?.voteSummary || [];
+  const eliminatedName = (() => {
+    if (!tallyResult?.eliminatedId) return null;
+    const p = players.find((p) => p.id === tallyResult.eliminatedId);
+    return p?.name || voteSummary.find((v) => v.playerId === tallyResult.eliminatedId)?.name || "ไม่ทราบ";
+  })();
 
   return (
     <div className="min-h-screen gradient-dark flex flex-col p-6">
@@ -187,34 +193,58 @@ const VotePage = () => {
         </motion.div>
       )}
 
-      {/* Tally result */}
+      {/* Tally result with vote counts */}
       {tallyResult && !showGuessInput && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-card rounded-xl border border-border p-6 mb-6 card-glow text-center"
+          className="bg-card rounded-xl border border-border p-6 mb-6 card-glow"
         >
-          {tallyResult.result === "tie" ? (
-            <p className="text-lg font-bold text-muted-foreground">เสมอ! ไม่มีใครถูกคัดออก</p>
-          ) : tallyResult.result === "game_over" ? (
-            <div>
-              <p className="text-lg font-bold text-primary mb-2">🏆 เกมจบ!</p>
-              <p className="text-muted-foreground">
-                {tallyResult.winner === "civilian" && "กลุ่มหลักชนะ!"}
-                {tallyResult.winner === "undercover" && "Undercover ชนะ!"}
-                {tallyResult.winner === "mrwhite" && "Mr.White ชนะ!"}
-              </p>
-            </div>
-          ) : (
-            <div>
-              <p className="text-lg font-bold text-danger mb-2">
-                {players.find((p) => p.id === tallyResult.eliminatedId)?.name} ถูกคัดออก
-              </p>
-              <p className="text-sm text-muted-foreground">
-                คำ: {tallyResult.eliminatedWord || "ไม่มีคำ"}
-              </p>
+          {/* Vote summary */}
+          {voteSummary.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <p className="text-sm font-semibold text-muted-foreground mb-2">ผลคะแนน</p>
+              {voteSummary.map((v) => (
+                <div
+                  key={v.playerId}
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg ${
+                    v.playerId === tallyResult.eliminatedId
+                      ? "bg-danger/15 border border-danger/30"
+                      : "bg-secondary/50"
+                  }`}
+                >
+                  <span className="font-medium">{v.name}</span>
+                  <span className={`font-bold ${v.playerId === tallyResult.eliminatedId ? "text-danger" : "text-muted-foreground"}`}>
+                    {v.votes} โหวต
+                  </span>
+                </div>
+              ))}
             </div>
           )}
+
+          <div className="text-center">
+            {tallyResult.result === "tie" ? (
+              <p className="text-lg font-bold text-muted-foreground">เสมอ! ไม่มีใครถูกคัดออก</p>
+            ) : tallyResult.result === "game_over" ? (
+              <div>
+                {eliminatedName && (
+                  <p className="text-lg font-bold text-danger mb-2">
+                    {eliminatedName} ถูกคัดออก
+                  </p>
+                )}
+                <p className="text-lg font-bold text-primary mt-2">🏆 เกมจบ!</p>
+                <p className="text-muted-foreground">
+                  {tallyResult.winner === "civilian" && "กลุ่มหลักชนะ!"}
+                  {tallyResult.winner === "undercover" && "Undercover ชนะ!"}
+                  {tallyResult.winner === "mrwhite" && "Mr.White ชนะ!"}
+                </p>
+              </div>
+            ) : (
+              <p className="text-lg font-bold text-danger">
+                {eliminatedName} ถูกคัดออก
+              </p>
+            )}
+          </div>
         </motion.div>
       )}
 
@@ -255,7 +285,6 @@ const VotePage = () => {
 
       {error && <p className="text-danger text-sm text-center mb-3">{error}</p>}
 
-      {/* Actions */}
       <div className="space-y-3">
         {!hasVoted && isAlive && !tallyResult && (
           <button
