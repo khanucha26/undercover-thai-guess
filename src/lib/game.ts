@@ -10,19 +10,23 @@ export async function ensureAuth(): Promise<string> {
   return data.user!.id;
 }
 
-// Generate 6-char room code
-export function generateRoomCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+// Generate 4-digit room code (unique)
+export async function generateRoomCode(): Promise<string> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const { data } = await supabase
+      .from("rooms")
+      .select("id")
+      .eq("room_code", code)
+      .maybeSingle();
+    if (!data) return code;
   }
-  return code;
+  throw new Error("ไม่สามารถสร้างรหัสห้องได้");
 }
 
 // Create room
 export async function createRoom(hostId: string) {
-  const code = generateRoomCode();
+  const code = await generateRoomCode();
   const { data, error } = await supabase
     .from("rooms")
     .insert({
@@ -127,9 +131,9 @@ export async function castVote(roomId: string, round: number, voterId: string, t
 }
 
 // Tally votes
-export async function tallyVotes(roomId: string, guess?: string) {
+export async function tallyVotes(roomId: string) {
   const { data, error } = await supabase.functions.invoke("process-vote", {
-    body: { roomId, action: "tally", guess },
+    body: { roomId, action: "tally" },
   });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);

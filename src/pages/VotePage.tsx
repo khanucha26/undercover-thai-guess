@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useGameStore } from "@/stores/gameStore";
 import { supabase } from "@/integrations/supabase/client";
 import { castVote, tallyVotes } from "@/lib/game";
-import { Check, Users, Skull } from "lucide-react";
+import { Check, Users } from "lucide-react";
 
 interface Player {
   id: string;
@@ -31,9 +31,6 @@ const VotePage = () => {
   const [voteCount, setVoteCount] = useState(0);
   const [aliveCount, setAliveCount] = useState(0);
   const [tallyResult, setTallyResult] = useState<any>(null);
-  const [mrWhiteGuess, setMrWhiteGuess] = useState("");
-  const [showGuessInput, setShowGuessInput] = useState(false);
-  const [eliminatedPlayerId, setEliminatedPlayerId] = useState<string | null>(null);
 
   const isHost = room?.host_id === userId;
 
@@ -119,24 +116,6 @@ const VotePage = () => {
     try {
       const result = await tallyVotes(roomId);
       setTallyResult(result);
-      if (result.result === "mrwhite_guess") {
-        setShowGuessInput(true);
-        setEliminatedPlayerId(result.eliminatedId);
-      }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleMrWhiteGuess = async () => {
-    if (!roomId) return;
-    setLoading(true);
-    try {
-      const result = await tallyVotes(roomId, mrWhiteGuess);
-      setTallyResult(result);
-      setShowGuessInput(false);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -162,39 +141,8 @@ const VotePage = () => {
         </p>
       </div>
 
-      {/* Mr.White guess modal */}
-      {showGuessInput && isHost && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="bg-card rounded-xl border border-primary/30 p-6 mb-6 card-glow"
-        >
-          <h2 className="text-lg font-bold text-danger mb-2 flex items-center gap-2">
-            <Skull className="w-5 h-5" />
-            Mr.White ถูกโหวตออก!
-          </h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            ให้ Mr.White เดาคำของกลุ่มหลัก
-          </p>
-          <input
-            type="text"
-            value={mrWhiteGuess}
-            onChange={(e) => setMrWhiteGuess(e.target.value)}
-            placeholder="พิมพ์คำที่เดา..."
-            className="w-full px-4 py-3 rounded-lg bg-secondary border border-border text-foreground text-lg font-medium placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/50 mb-3"
-          />
-          <button
-            onClick={handleMrWhiteGuess}
-            disabled={!mrWhiteGuess.trim() || loading}
-            className="w-full py-3 rounded-lg gradient-gold text-primary-foreground font-bold disabled:opacity-50"
-          >
-            ยืนยันคำตอบ
-          </button>
-        </motion.div>
-      )}
-
       {/* Tally result with vote counts */}
-      {tallyResult && !showGuessInput && (
+      {tallyResult && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
