@@ -116,6 +116,17 @@ const VotePage = () => {
     try {
       const result = await tallyVotes(roomId);
       setTallyResult(result);
+
+      // If tie, reset vote state after a delay so players can vote again
+      if (result?.result === "tie") {
+        setTimeout(() => {
+          setTallyResult(null);
+          setHasVoted(false);
+          setSelectedTarget(null);
+          setVoteCount(0);
+          fetchData();
+        }, 3000);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
