@@ -117,10 +117,29 @@ Deno.serve(async (req) => {
         votes: voteCounts[p.id] || 0,
       })).sort((a, b) => b.votes - a.votes);
 
-      // Find max votes & handle ties by random selection
+      // Find max votes & handle ties
       const maxVotes = Math.max(...Object.values(voteCounts));
       const topPlayers = Object.entries(voteCounts).filter(([, count]) => count === maxVotes);
-      const eliminatedId = topPlayers[Math.floor(Math.random() * topPlayers.length)][0];
+
+      // If tie, no one is eliminated — play another voting round
+      if (topPlayers.length > 1) {
+        const nextRound = round + 1;
+        await supabaseAdmin
+          .from("rooms")
+          .update({ current_round: nextRound, status: "voting" })
+          .eq("id", roomId);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            result: "tie",
+            voteSummary,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const eliminatedId = topPlayers[0][0];
 
       // Eliminate player
       await supabaseAdmin
