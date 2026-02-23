@@ -138,11 +138,13 @@ const Index = () => {
               </label>
               <input
                 type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="6 ตัวอักษร"
-                maxLength={6}
-                className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground text-2xl font-bold text-center tracking-[0.3em] placeholder:text-muted-foreground/50 placeholder:text-lg placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all uppercase"
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="รหัส 4 หลัก"
+                maxLength={4}
+                className="w-full px-4 py-3 rounded-lg bg-card border border-border text-foreground text-2xl font-bold text-center tracking-[0.3em] placeholder:text-muted-foreground/50 placeholder:text-lg placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
               />
             </div>
             <button

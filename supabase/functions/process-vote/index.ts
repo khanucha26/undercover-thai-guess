@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
     }
     const userId = claimsData.claims.sub;
 
-    const { roomId, action, guess } = await req.json();
+    const { roomId, action } = await req.json();
 
     const { data: room } = await supabaseAdmin
       .from("rooms")
@@ -61,10 +61,7 @@ Deno.serve(async (req) => {
       if (room.host_id !== userId) {
         return new Response(
           JSON.stringify({ error: "Only host can start voting" }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
@@ -78,111 +75,52 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Action: process votes (called when all votes are in)
+    // Action: tally votes
     if (action === "tally") {
       if (room.host_id !== userId) {
         return new Response(
           JSON.stringify({ error: "Only host can tally" }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       const round = room.current_round;
 
-      // Get alive players
       const { data: alivePlayers } = await supabaseAdmin
         .from("players")
         .select("*")
         .eq("room_id", roomId)
         .eq("is_alive", true);
 
-      // Get votes for this round
       const { data: votes } = await supabaseAdmin
         .from("votes")
         .select("*")
         .eq("room_id", roomId)
         .eq("round", round);
 
-      if (
-        !votes ||
-        !alivePlayers ||
-        votes.length < alivePlayers.length
-      ) {
+      if (!votes || !alivePlayers || votes.length < alivePlayers.length) {
         return new Response(
           JSON.stringify({ error: "Not all votes are in yet" }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Count votes per player
+      // Count votes
       const voteCounts: Record<string, number> = {};
-      for (const p of alivePlayers!) {
-        voteCounts[p.id] = 0;
-      }
-      for (const v of votes) {
-        voteCounts[v.target_player_id] =
-          (voteCounts[v.target_player_id] || 0) + 1;
-      }
+      for (const p of alivePlayers) voteCounts[p.id] = 0;
+      for (const v of votes) voteCounts[v.target_player_id] = (voteCounts[v.target_player_id] || 0) + 1;
 
-      // Build vote summary (player name -> count)
-      const voteSummary: { playerId: string; name: string; votes: number }[] = [];
-      for (const p of alivePlayers!) {
-        voteSummary.push({ playerId: p.id, name: p.name, votes: voteCounts[p.id] || 0 });
-      }
-      voteSummary.sort((a, b) => b.votes - a.votes);
+      // Build vote summary
+      const voteSummary = alivePlayers.map((p) => ({
+        playerId: p.id,
+        name: p.name,
+        votes: voteCounts[p.id] || 0,
+      })).sort((a, b) => b.votes - a.votes);
 
-      // Find max
-      let maxVotes = 0;
-      let eliminatedId: string | null = null;
-      let tied = false;
-
-      for (const [pid, count] of Object.entries(voteCounts)) {
-        if (count > maxVotes) {
-          maxVotes = count;
-          eliminatedId = pid;
-          tied = false;
-        } else if (count === maxVotes) {
-          tied = true;
-        }
-      }
-
-      // If tied, no one eliminated this round
-      if (tied) {
-        await supabaseAdmin
-          .from("vote_results")
-          .insert({
-            room_id: roomId,
-            round,
-            eliminated_player_id: null,
-            eliminated_word: null,
-            eliminated_role: null,
-            game_over: false,
-            winner: null,
-          });
-
-        await supabaseAdmin
-          .from("rooms")
-          .update({ status: "playing", current_round: round + 1 })
-          .eq("id", roomId);
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            result: "tie",
-            voteSummary,
-            message: "เสมอ! ไม่มีใครถูกคัดออก",
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      }
+      // Find max votes & handle ties by random selection
+      const maxVotes = Math.max(...Object.values(voteCounts));
+      const topPlayers = Object.entries(voteCounts).filter(([, count]) => count === maxVotes);
+      const eliminatedId = topPlayers[Math.floor(Math.random() * topPlayers.length)][0];
 
       // Eliminate player
       await supabaseAdmin
@@ -198,38 +136,11 @@ Deno.serve(async (req) => {
         .single();
 
       const eliminatedRole = secret?.role || "civilian";
-      const eliminatedWord = secret?.word || null;
 
-      // Check if Mr.White was eliminated - they get to guess
-      if (eliminatedRole === "mrwhite" && !guess) {
-        await supabaseAdmin
-          .from("vote_results")
-          .insert({
-            room_id: roomId,
-            round,
-            eliminated_player_id: eliminatedId,
-            eliminated_word: null,
-            eliminated_role: "mrwhite",
-            game_over: false,
-            winner: null,
-          });
+      // If Mr.White is eliminated, check their stored answer
+      if (eliminatedRole === "mrwhite") {
+        const mrWhiteAnswer = secret?.mr_white_answer?.trim() || "";
 
-        return new Response(
-          JSON.stringify({
-            success: true,
-            result: "mrwhite_guess",
-            eliminatedId,
-            voteSummary,
-            message: "Mr.White ถูกโหวตออก! ให้เดาคำ",
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
-        );
-      }
-
-      // If Mr.White guessed correctly
-      if (eliminatedRole === "mrwhite" && guess) {
         // Get civilian word
         const { data: civilianSecret } = await supabaseAdmin
           .from("player_secrets")
@@ -239,25 +150,20 @@ Deno.serve(async (req) => {
           .limit(1)
           .single();
 
-        if (
-          civilianSecret &&
-          guess.trim() === civilianSecret.word?.trim()
-        ) {
-          // Mr.White wins!
-          await supabaseAdmin
-            .from("vote_results")
-            .upsert(
-              {
-                room_id: roomId,
-                round,
-                eliminated_player_id: eliminatedId,
-                eliminated_word: null,
-                eliminated_role: "mrwhite",
-                game_over: true,
-                winner: "mrwhite",
-              },
-              { onConflict: "room_id,round", ignoreDuplicates: false }
-            );
+        if (civilianSecret && mrWhiteAnswer && mrWhiteAnswer === civilianSecret.word?.trim()) {
+          // Mr.White guessed correctly → Mr.White wins!
+          await supabaseAdmin.from("vote_results").upsert(
+            {
+              room_id: roomId,
+              round,
+              eliminated_player_id: eliminatedId,
+              eliminated_word: null,
+              eliminated_role: "mrwhite",
+              game_over: true,
+              winner: "mrwhite",
+            },
+            { onConflict: "room_id,round", ignoreDuplicates: false }
+          );
 
           await supabaseAdmin
             .from("rooms")
@@ -269,26 +175,24 @@ Deno.serve(async (req) => {
               success: true,
               result: "game_over",
               winner: "mrwhite",
+              eliminatedId,
               voteSummary,
-              message: "Mr.White เดาคำถูก! Mr.White ชนะ!",
+              message: "Mr.White ตอบถูก และชนะเกม!",
             }),
-            {
-              headers: {
-                ...corsHeaders,
-                "Content-Type": "application/json",
-              },
-            }
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
+
+        // Mr.White answer wrong → continue game normally (Mr.White is still eliminated)
       }
 
-      // Save result
+      // Save vote result
       await supabaseAdmin.from("vote_results").upsert(
         {
           room_id: roomId,
           round,
           eliminated_player_id: eliminatedId,
-          eliminated_word: eliminatedWord,
+          eliminated_word: null,
           eliminated_role: eliminatedRole,
           game_over: false,
           winner: null,
@@ -307,31 +211,18 @@ Deno.serve(async (req) => {
         .from("player_secrets")
         .select("player_id, role")
         .eq("room_id", roomId)
-        .in(
-          "player_id",
-          (remainingPlayers || []).map((p: any) => p.id)
-        );
+        .in("player_id", (remainingPlayers || []).map((p: any) => p.id));
 
-      const aliveSpecial = (remainingSecrets || []).filter(
-        (s: any) => s.role !== "civilian"
-      );
-      const aliveCivilian = (remainingSecrets || []).filter(
-        (s: any) => s.role === "civilian"
-      );
+      const aliveSpecial = (remainingSecrets || []).filter((s: any) => s.role !== "civilian");
+      const aliveCivilian = (remainingSecrets || []).filter((s: any) => s.role === "civilian");
 
       let gameOver = false;
       let winner: string | null = null;
 
-      // All special roles eliminated -> civilians win
       if (aliveSpecial.length === 0) {
         gameOver = true;
         winner = "civilian";
-      }
-      // 2 players left and special still alive -> special wins
-      else if (
-        (remainingPlayers || []).length <= 2 &&
-        aliveSpecial.length > 0
-      ) {
+      } else if ((remainingPlayers || []).length <= 2 && aliveSpecial.length > 0) {
         gameOver = true;
         winner = "undercover";
       }
@@ -342,7 +233,7 @@ Deno.serve(async (req) => {
             room_id: roomId,
             round,
             eliminated_player_id: eliminatedId,
-            eliminated_word: eliminatedWord,
+            eliminated_word: null,
             eliminated_role: eliminatedRole,
             game_over: true,
             winner,
@@ -363,9 +254,7 @@ Deno.serve(async (req) => {
             eliminatedId,
             voteSummary,
           }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
@@ -382,9 +271,7 @@ Deno.serve(async (req) => {
           eliminatedId,
           voteSummary,
         }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
